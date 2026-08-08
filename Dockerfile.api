@@ -1,0 +1,9 @@
+FROM public.ecr.aws/lambda/python:3.13
+
+COPY apps/api/requirements.txt ${LAMBDA_TASK_ROOT}/apps/api/requirements.txt
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/apps/api/requirements.txt
+
+COPY apps/api ${LAMBDA_TASK_ROOT}/apps/api
+COPY packages/shared_types ${LAMBDA_TASK_ROOT}/packages/shared_types
+
+CMD ["apps.api.lambda_handler.handler"]
