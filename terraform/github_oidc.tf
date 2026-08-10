@@ -30,3 +30,72 @@ resource "aws_iam_role" "github_actions_deploy" {
     }]
   })
 }
+
+resource "aws_iam_role_policy" "github_actions_deploy" {
+  name = "studymate-github-actions-deploy"
+  role = aws_iam_role.github_actions_deploy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "EcrAuth"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "EcrPush"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+        ]
+        Resource = [
+          aws_ecr_repository.api.arn,
+          aws_ecr_repository.worker.arn,
+        ]
+      },
+      {
+        Sid      = "LambdaDeploy"
+        Effect   = "Allow"
+        Action   = ["lambda:UpdateFunctionCode", "lambda:GetFunction"]
+        Resource = aws_lambda_function.api.arn
+      },
+      {
+        Sid    = "EcsDeploy"
+        Effect = "Allow"
+        Action = [
+          "ecs:RegisterTaskDefinition",
+          "ecs:DescribeTaskDefinition",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid      = "EcsUpdateService"
+        Effect   = "Allow"
+        Action   = ["ecs:UpdateService", "ecs:DescribeServices"]
+        Resource = aws_ecs_service.worker.id
+      },
+      {
+        Sid    = "PassEcsRoles"
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
+        Resource = [
+          aws_iam_role.worker_execution.arn,
+          aws_iam_role.worker_task.arn,
+        ]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
+      },
+    ]
+  })
+}

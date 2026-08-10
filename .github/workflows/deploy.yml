@@ -1,0 +1,124 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-api:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::458586357596:role/studymate-github-actions-deploy
+          aws-region: us-west-2
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - name: Build and push api image
+        run: |
+          docker buildx build \
+            --provenance=false --sbom=false \
+            -f Dockerfile.api \
+            -t ${{ steps.ecr-login.outputs.registry }}/studymate-api:${{ github.event.workflow_run.head_sha }} \
+            -t ${{ steps.ecr-login.outputs.registry }}/studymate-api:latest \
+            --push .
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name studymate-api \
+            --image-uri ${{ steps.ecr-login.outputs.registry }}/studymate-api:${{ github.event.workflow_run.head_sha }}
+
+  deploy-worker:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::458586357596:role/studymate-github-actions-deploy
+          aws-region: us-west-2
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - name: Build and push worker image
+        run: |
+          docker buildx build \
+            --provenance=false --sbom=false \
+            -f Dockerfile.worker \
+            -t ${{ steps.ecr-login.outputs.registry }}/studymate-worker:${{ github.event.workflow_run.head_sha }} \
+            -t ${{ steps.ecr-login.outputs.registry }}/studymate-worker:latest \
+            --push .
+
+      - name: Render new task definition with updated image
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition studymate-worker \
+            --query 'taskDefinition' \
+            > task-def.json
+
+          NEW_IMAGE="${{ steps.ecr-login.outputs.registry }}/studymate-worker:${{ github.event.workflow_run.head_sha }}"
+
+          jq --arg IMAGE "$NEW_IMAGE" \
+            '.containerDefinitions[0].image = $IMAGE
+             | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            task-def.json > new-task-def.json
+
+      - name: Register new task definition revision
+        id: register
+        run: |
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "arn=$NEW_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Update ECS service to use new revision
+        run: |
+          aws ecs update-service \
+            --cluster studymate \
+            --service studymate-worker \
+            --task-definition ${{ steps.register.outputs.arn }}
+
+  deploy-frontend:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy prebuilt output
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
