@@ -21,8 +21,8 @@ resource "aws_iam_role" "github_actions_deploy" {
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "token.actions.githubusercontent.com:aud"             = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:job_workflow_ref" = "Chukwudalu/studymate/.github/workflows/deploy.yml@refs/heads/main"
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "repo:Chukwudalu@28521165/studymate@1328225560:ref:refs/heads/main"
         }
       }
     }]
