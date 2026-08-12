@@ -4,6 +4,7 @@ import { getLecture, generateFlashcards, generateQuiz, deleteLecture } from "./a
 import type { LectureState } from "./types";
 import FlashcardView from "./FlashcardView";
 import QuizView from "./QuizView";
+import ChatPanel from "./ChatPanel";
 import { statusPillClass } from "./utils";
 
 export default function LectureDetailPage() {
@@ -147,6 +148,12 @@ export default function LectureDetailPage() {
           <div className="error-box">{lecture.quiz_errors[lecture.quiz_errors.length - 1]}</div>
         )}
       </section>
+
+      {notesReady && (
+        <section className="card">
+          <ChatPanel key={lecture.lecture_id} lectureId={lecture.lecture_id} initialMessages={lecture.chat_messages} />
+        </section>
+      )}
 
       {lecture.flashcards.length > 0 && (
         <section className="card">

@@ -281,3 +281,57 @@ def test_presign_upload_requires_auth():
     res = unauthenticated_client.post("/uploads/presign")
 
     assert res.status_code == 401
+
+
+def test_chat_returns_answer_and_persists_messages(client, monkeypatch):
+    state = make_state(notes=[{"segment_id": "seg-1", "summary": "Mitosis has four phases.", "key_terms": ["mitosis"]}])
+    monkeypatch.setattr(main, "get_lecture", lambda lecture_id: state)
+    monkeypatch.setattr(main, "answer_question", lambda notes, history, question: "It has four phases.")
+
+    captured = {}
+
+    def fake_append(lecture_id, user_id, messages):
+        captured.update(lecture_id=lecture_id, user_id=user_id, messages=messages)
+        return make_state(chat_messages=messages)
+
+    monkeypatch.setattr(main, "append_chat_messages", fake_append)
+
+    res = client.post("/lectures/lec-1/chat", json={"message": "How many phases does mitosis have?"})
+
+    assert res.status_code == 200
+    assert captured["lecture_id"] == "lec-1"
+    assert captured["user_id"] == USER_ID
+    assert captured["messages"] == [
+        {"role": "user", "content": "How many phases does mitosis have?"},
+        {"role": "assistant", "content": "It has four phases."},
+    ]
+    assert res.json()["chat_messages"] == captured["messages"]
+
+
+def test_chat_requires_notes_to_exist(client, monkeypatch):
+    state = make_state(notes=[])
+    monkeypatch.setattr(main, "get_lecture", lambda lecture_id: state)
+
+    res = client.post("/lectures/lec-1/chat", json={"message": "Anything in here?"})
+
+    assert res.status_code == 400
+
+
+def test_chat_lecture_not_found(client, monkeypatch):
+    def raise_not_found(lecture_id):
+        raise ValueError("not found")
+
+    monkeypatch.setattr(main, "get_lecture", raise_not_found)
+
+    res = client.post("/lectures/lec-1/chat", json={"message": "hi"})
+
+    assert res.status_code == 404
+
+
+def test_chat_owned_by_another_user_is_rejected(client, monkeypatch):
+    state = make_state(user_id=OTHER_USER_ID, notes=[{"segment_id": "seg-1", "summary": "x", "key_terms": []}])
+    monkeypatch.setattr(main, "get_lecture", lambda lecture_id: state)
+
+    res = client.post("/lectures/lec-1/chat", json={"message": "hi"})
+
+    assert res.status_code == 404

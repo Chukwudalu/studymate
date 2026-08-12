@@ -5,3 +5,4 @@ psycopg[binary]==3.3.4
 pydantic==2.13.4
 pyjwt==2.13.0
 bcrypt==5.0.0
+langchain-anthropic==1.5.1

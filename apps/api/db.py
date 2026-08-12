@@ -33,6 +33,28 @@ def update_lecture_fields(lecture_id: str, **fields) -> None:
         )
 
 
+def append_chat_messages(lecture_id: str, user_id: str, messages: list[dict]) -> LectureState | None:
+    # Single atomic UPDATE (append happens inside Postgres, not read-modify-write in
+    # Python) so two concurrent chat sends on the same lecture can't clobber each other.
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE lectures
+            SET state = jsonb_set(
+                state,
+                '{chat_messages}',
+                COALESCE(state->'chat_messages', '[]'::jsonb) || %s::jsonb
+            )
+            WHERE id = %s AND state->>'user_id' = %s
+            RETURNING state
+            """,
+            (json.dumps(messages), lecture_id, user_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return LectureState.model_validate(row[0])
+
+
 def delete_lecture(lecture_id: str, user_id: str) -> None:
     with get_connection() as conn:
         conn.execute(

@@ -120,10 +120,13 @@ resource "aws_lambda_function" "api" {
 
     environment {
         variables = {
-            DATABASE_URL   = var.database_url
-            S3_BUCKET      = var.bucket_name
-            SQS_QUEUE_URL  = aws_sqs_queue.lectures.id
-            AUTH_JWT_SECRET = var.auth_jwt_secret
+            DATABASE_URL       = var.database_url
+            S3_BUCKET          = var.bucket_name
+            SQS_QUEUE_URL      = aws_sqs_queue.lectures.id
+            AUTH_JWT_SECRET    = var.auth_jwt_secret
+            # Deliberate, scoped exception to "apps/api holds no LLM keys" - chat needs a
+            # synchronous, low-latency Claude call that the queue+worker path can't give it.
+            ANTHROPIC_API_KEY  = var.anthropic_api_key
         }
     }
 }

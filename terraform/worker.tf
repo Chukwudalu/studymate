@@ -151,12 +151,14 @@ resource "aws_ecs_service" "worker" {
 
 resource "aws_appautoscaling_target" "worker" {
     min_capacity       = 0
-    max_capacity       = 1
+    max_capacity       = 3
     resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.worker.name}"
     scalable_dimension = "ecs:service:DesiredCount"
     service_namespace  = "ecs"
 }
 
+# Tiered by queue depth so concurrent uploads from different students don't all
+# serialize behind a single task: 1 task for a small queue, up to 3 under real load.
 resource "aws_appautoscaling_policy" "worker_scale_out" {
     name               = "studymate-worker-scale-out"
     policy_type        = "StepScaling"
@@ -171,7 +173,17 @@ resource "aws_appautoscaling_policy" "worker_scale_out" {
 
         step_adjustment {
             metric_interval_lower_bound = 0
+            metric_interval_upper_bound = 5
             scaling_adjustment          = 1
+        }
+        step_adjustment {
+            metric_interval_lower_bound = 5
+            metric_interval_upper_bound = 15
+            scaling_adjustment          = 2
+        }
+        step_adjustment {
+            metric_interval_lower_bound = 15
+            scaling_adjustment          = 3
         }
     }
 }

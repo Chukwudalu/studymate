@@ -1,4 +1,4 @@
-import type { LectureState, LectureSummary } from "./types";
+import type { ChatMessage, LectureState, LectureSummary } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -105,6 +105,15 @@ export async function generateFlashcards(lectureId: string, count: number): Prom
   if (!res.ok) {
     throw new Error(`Request failed: ${res.status} ${res.statusText}`);
   }
+}
+
+export async function sendChatMessage(lectureId: string, message: string): Promise<{ chat_messages: ChatMessage[] }> {
+  const res = await apiFetch(`/lectures/${lectureId}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  return json(res);
 }
 
 export async function generateQuiz(lectureId: string, count: number): Promise<void> {

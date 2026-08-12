@@ -3,9 +3,18 @@ from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from packages.shared_types.schemas import LectureState
+from packages.shared_types.schemas import ChatMessage, LectureState
 from apps.api.auth import get_current_user_id, hash_password, verify_password, set_auth_cookie, clear_auth_cookie
-from apps.api.db import create_lecture, get_lecture, update_lecture_fields, list_subjects, list_lectures, delete_lecture
+from apps.api.chat import answer_question
+from apps.api.db import (
+    create_lecture,
+    get_lecture,
+    update_lecture_fields,
+    append_chat_messages,
+    list_subjects,
+    list_lectures,
+    delete_lecture,
+)
 from apps.api.users_db import create_user, get_user_by_email, update_password, EmailAlreadyRegistered
 from apps.api.queue import enqueue_job
 
@@ -43,6 +52,10 @@ class GenerateFlashcardsRequest(BaseModel):
 
 class GenerateQuizRequest(BaseModel):
     count: int = 10
+
+
+class ChatRequest(BaseModel):
+    message: str
 
 
 class SignupRequest(BaseModel):
@@ -183,6 +196,26 @@ def generate_quiz_route(lecture_id: str, body: GenerateQuizRequest, user_id: str
     update_lecture_fields(lecture_id, quiz_status="queued", quiz_count=body.count)
     enqueue_job("quiz", lecture_id)
     return {"status": "queued"}
+
+
+@app.post("/lectures/{lecture_id}/chat")
+def chat_route(lecture_id: str, body: ChatRequest, user_id: str = Depends(get_current_user_id)):
+    state = _get_owned_lecture(lecture_id, user_id)
+
+    if not state.notes:
+        raise HTTPException(status_code=400, detail="Notes aren't ready yet for this lecture")
+
+    answer = answer_question(state.notes, state.chat_messages, body.message)
+
+    new_messages = [
+        ChatMessage(role="user", content=body.message),
+        ChatMessage(role="assistant", content=answer),
+    ]
+    updated_state = append_chat_messages(lecture_id, user_id, [m.model_dump() for m in new_messages])
+    if updated_state is None:
+        raise HTTPException(status_code=404, detail="Lecture not found")
+
+    return {"chat_messages": updated_state.chat_messages}
 
 
 @app.post("/uploads/presign")

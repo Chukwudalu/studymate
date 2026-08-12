@@ -40,6 +40,11 @@ class QuizQuestion(BaseModel):
     source_segment_id: str
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class LectureSummary(BaseModel):
     lecture_id: str
     user_id: str
@@ -64,6 +69,7 @@ class LectureState(BaseModel):
     notes: list[NoteBlock] = []
     flashcards: list[Flashcard] = []
     quiz: list[QuizQuestion] = []
+    chat_messages: list[ChatMessage] = []
     transcription_errors: list[str] = []
     flashcards_errors: list[str] = []
     quiz_errors: list[str] = []

@@ -36,6 +36,11 @@ export interface QuizQuestion {
   source_segment_id: string;
 }
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export type LectureStatus =
   | "queued"
   | "transcribing"
@@ -62,6 +67,7 @@ export interface LectureState {
   notes: NoteBlock[];
   flashcards: Flashcard[];
   quiz: QuizQuestion[];
+  chat_messages: ChatMessage[];
   transcription_errors: string[];
   flashcards_errors: string[];
   quiz_errors: string[];
