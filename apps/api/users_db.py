@@ -30,3 +30,11 @@ def get_user_by_email(email: str) -> dict | None:
         if row is None:
             return None
         return {"id": str(row[0]), "email": row[1], "password_hash": row[2]}
+
+
+def update_password(email: str, password_hash: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET password_hash = %s WHERE email = %s", (password_hash, email)
+        )
+        return cursor.rowcount > 0

@@ -34,6 +34,15 @@ export async function login(email: string, password: string): Promise<void> {
   await json(res);
 }
 
+export async function resetPassword(email: string, newPassword: string, confirmPassword: string): Promise<void> {
+  const res = await apiFetch("/auth/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, new_password: newPassword, confirm_password: confirmPassword }),
+  });
+  await json(res);
+}
+
 export async function logout(): Promise<void> {
   await apiFetch("/auth/logout", { method: "POST" });
 }

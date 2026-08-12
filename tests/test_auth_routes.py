@@ -115,6 +115,69 @@ def test_me_route_requires_session():
     assert res.status_code == 401
 
 
+def test_reset_password_updates_hash_for_known_email(client, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        main,
+        "update_password",
+        lambda email, password_hash: captured.update(email=email, password_hash=password_hash) or True,
+    )
+
+    res = client.post(
+        "/auth/reset-password",
+        json={"email": "Test@Example.com", "new_password": "newpassword1", "confirm_password": "newpassword1"},
+    )
+
+    assert res.status_code == 200
+    assert captured["email"] == "test@example.com"  # normalized to lowercase
+    assert captured["password_hash"] != "newpassword1"  # never stored in plaintext
+
+
+def test_reset_password_rejects_mismatched_confirmation(client, monkeypatch):
+    monkeypatch.setattr(main, "update_password", lambda email, password_hash: True)
+
+    res = client.post(
+        "/auth/reset-password",
+        json={"email": "test@example.com", "new_password": "newpassword1", "confirm_password": "different1"},
+    )
+
+    assert res.status_code == 400
+
+
+def test_reset_password_rejects_short_password(client, monkeypatch):
+    monkeypatch.setattr(main, "update_password", lambda email, password_hash: True)
+
+    res = client.post(
+        "/auth/reset-password",
+        json={"email": "test@example.com", "new_password": "short", "confirm_password": "short"},
+    )
+
+    assert res.status_code == 400
+
+
+def test_reset_password_with_unknown_email_returns_404(client, monkeypatch):
+    monkeypatch.setattr(main, "update_password", lambda email, password_hash: False)
+
+    res = client.post(
+        "/auth/reset-password",
+        json={"email": "nobody@example.com", "new_password": "newpassword1", "confirm_password": "newpassword1"},
+    )
+
+    assert res.status_code == 404
+
+
+def test_reset_password_does_not_require_existing_session(monkeypatch):
+    monkeypatch.setattr(main, "update_password", lambda email, password_hash: True)
+    unauthenticated_client = TestClient(main.app)
+
+    res = unauthenticated_client.post(
+        "/auth/reset-password",
+        json={"email": "x@example.com", "new_password": "newpassword1", "confirm_password": "newpassword1"},
+    )
+
+    assert res.status_code == 200
+
+
 def test_logout_clears_session_cookie():
     token = jwt.encode({"sub": "user-123", "aud": "authenticated"}, "test-jwt-secret", algorithm="HS256")
     client = TestClient(main.app, cookies={"studymate_token": token})
