@@ -17,10 +17,13 @@ class FlashcardsOutput(BaseModel):
     @classmethod
     def parse_if_string(cls, value):
         if isinstance(value, str):
-            parsed = json.loads(value)
-            if isinstance(parsed, dict):
-                return parsed.get("flashcards", parsed)
-            return parsed
+            value = json.loads(value)
+        if isinstance(value, dict):
+            if "flashcards" in value:
+                return value["flashcards"]
+            if "front" in value and "back" in value:
+                return [value]
+            return value
         return value
 
 
