@@ -57,7 +57,10 @@ body {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
 }
+
+.mobile-bar, .scrim { display: none; }
 
 .sidebar {
   width: 240px;
@@ -71,6 +74,7 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
 }
 
@@ -365,3 +369,75 @@ label { font-size: 13px; font-weight: 600; color: var(--ink-soft); display: flex
 .chat-bubble-pending { color: var(--ink-faint); font-style: italic; }
 .chat-input-row { display: flex; gap: 8px; }
 .chat-input-row input { flex: 1; }
+
+/* Level meter shown while recording */
+.rec-meter { flex: 1; height: 8px; border-radius: 999px; background: var(--surface); overflow: hidden; min-width: 60px; }
+.rec-meter-fill { height: 100%; width: 0; background: var(--critical); border-radius: 999px; transition: width 80ms linear; }
+.rec-warning { background: var(--warning-soft); color: var(--warning); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+
+/* Phones and small tablets */
+@media (max-width: 768px) {
+  .app-shell { flex-direction: column; }
+
+  .mobile-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(290px, 85vw);
+    height: auto;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 220ms ease, visibility 0s linear 220ms;
+    box-shadow: var(--shadow);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 220ms ease;
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  .wrap { padding: 24px 16px 64px; gap: 24px; }
+  .card { padding: 18px; gap: 16px; border-radius: 12px; }
+  h1.display { font-size: 22px; }
+
+  /* 16px inputs stop iOS Safari zooming the page on focus; 44px is a comfortable tap target */
+  input[type="text"], input[type="number"], input[type="email"], input[type="password"], select {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .btn { min-height: 44px; }
+  .subject-link { padding: 12px 10px; }
+
+  .masthead { flex-wrap: wrap; }
+  .lecture-row { flex-wrap: wrap; }
+  .actions > .btn { flex: 1 1 auto; justify-content: center; }
+  .chat-bubble { max-width: 92%; }
+  .chat-messages { max-height: 50vh; }
+  .recorder-preview audio { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .sidebar.open { transition: none; }
+}
