@@ -1,4 +1,4 @@
-from apps.api.db import get_lecture, update_lecture_fields
+from apps.core_api.db import get_lecture, update_lecture_fields
 from services.pipeline.transcription_graph import transcription_graph
 from services.pipeline.flashcards_graph import flashcards_graph
 from services.pipeline.quiz_graph import quiz_graph

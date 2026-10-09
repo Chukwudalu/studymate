@@ -1,0 +1,33 @@
+# Top-level values, passed down into each subchart via its alias (authService/coreApi/worker).
+# CI overrides image.tag per deploy via --set authService.image.tag=$SHA etc.
+
+authService:
+  image:
+    repository: "458586357596.dkr.ecr.us-west-2.amazonaws.com/studymate-auth-service"
+    tag: "latest"
+  replicaCount: 1
+
+coreApi:
+  image:
+    repository: "458586357596.dkr.ecr.us-west-2.amazonaws.com/studymate-core-api"
+    tag: "latest"
+  replicaCount: 1
+  # IRSA role core-api's pod assumes for S3/SQS access - see terraform/eks_irsa.tf.
+  irsaRoleArn: "arn:aws:iam::458586357596:role/studymate-core-api-irsa"
+
+worker:
+  image:
+    repository: "458586357596.dkr.ecr.us-west-2.amazonaws.com/studymate-worker"
+    tag: "latest"
+  irsaRoleArn: "arn:aws:iam::458586357596:role/studymate-worker-irsa"
+  sqsQueueUrl: "https://sqs.us-west-2.amazonaws.com/458586357596/studymate-lectures"
+  sqsQueueRegion: "us-west-2"
+
+# Pre-created in terraform/eks_addons.tf so the Ingress annotation below can
+# reference it deterministically.
+albSecurityGroupId: "sg-076a5a909c8caa05b"
+
+# Empty for the first pass (Phase 2 verification over plain HTTP). Filled in
+# once an ACM cert is requested, before Phase 4's cutover - the frontend's
+# Secure+SameSite=None auth cookie requires HTTPS to function at all.
+acmCertificateArn: ""

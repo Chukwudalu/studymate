@@ -11,9 +11,12 @@ permissions:
   contents: read
 
 jobs:
-  deploy-api:
+  build-and-push:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth-service, core-api, worker]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,23 +30,17 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
         id: ecr-login
 
-      - name: Build and push api image
+      - name: Build and push ${{ matrix.service }} image
         run: |
           docker buildx build \
             --provenance=false --sbom=false \
-            -f Dockerfile.api \
-            -t ${{ steps.ecr-login.outputs.registry }}/studymate-api:${{ github.event.workflow_run.head_sha }} \
-            -t ${{ steps.ecr-login.outputs.registry }}/studymate-api:latest \
+            -f Dockerfile.${{ matrix.service }} \
+            -t ${{ steps.ecr-login.outputs.registry }}/studymate-${{ matrix.service }}:${{ github.event.workflow_run.head_sha }} \
+            -t ${{ steps.ecr-login.outputs.registry }}/studymate-${{ matrix.service }}:latest \
             --push .
 
-      - name: Update Lambda function code
-        run: |
-          aws lambda update-function-code \
-            --function-name studymate-api \
-            --image-uri ${{ steps.ecr-login.outputs.registry }}/studymate-api:${{ github.event.workflow_run.head_sha }}
-
-  deploy-worker:
-    if: github.event.workflow_run.conclusion == 'success'
+  deploy-k8s:
+    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,47 +52,49 @@ jobs:
           role-to-assume: arn:aws:iam::458586357596:role/studymate-github-actions-deploy
           aws-region: us-west-2
 
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr-login
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name studymate --region us-west-2
 
-      - name: Build and push worker image
+      # COOKIE_SECURE=false below matches the ALB's current plain-HTTP listener
+      # (no ACM cert yet - see charts/studymate/values.yaml's acmCertificateArn).
+      # Flip to "true" in Phase 4, once HTTPS is added to the Ingress - the
+      # frontend's cross-site cookie is Secure+SameSite=None and won't be set
+      # by the browser at all over HTTP, so this must change before cutover.
+      #
+      # No `kubectl create namespace` here deliberately: the CI role's access
+      # policy is scoped to edit permissions *within* the studymate namespace
+      # only (terraform/github_oidc.tf) and can never create a namespace
+      # itself - Namespace is a cluster-scoped resource kind, which a
+      # namespace-scoped RBAC binding cannot grant regardless of policy
+      # content. The namespace is created once via Terraform
+      # (kubernetes_namespace.studymate in eks_addons.tf) using admin access.
+      - name: Apply secrets
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AUTH_JWT_SECRET: ${{ secrets.AUTH_JWT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          S3_BUCKET: ${{ secrets.BUCKET_NAME }}
+          SQS_QUEUE_URL: ${{ secrets.SQS_QUEUE_URL }}
         run: |
-          docker buildx build \
-            --provenance=false --sbom=false \
-            -f Dockerfile.worker \
-            -t ${{ steps.ecr-login.outputs.registry }}/studymate-worker:${{ github.event.workflow_run.head_sha }} \
-            -t ${{ steps.ecr-login.outputs.registry }}/studymate-worker:latest \
-            --push .
+          kubectl create secret generic studymate-secrets --namespace studymate \
+            --from-literal=DATABASE_URL="$DATABASE_URL" \
+            --from-literal=AUTH_JWT_SECRET="$AUTH_JWT_SECRET" \
+            --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY" \
+            --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+            --from-literal=S3_BUCKET="$S3_BUCKET" \
+            --from-literal=SQS_QUEUE_URL="$SQS_QUEUE_URL" \
+            --from-literal=COOKIE_SECURE=false \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Render new task definition with updated image
+      - name: Helm upgrade
         run: |
-          aws ecs describe-task-definition \
-            --task-definition studymate-worker \
-            --query 'taskDefinition' \
-            > task-def.json
-
-          NEW_IMAGE="${{ steps.ecr-login.outputs.registry }}/studymate-worker:${{ github.event.workflow_run.head_sha }}"
-
-          jq --arg IMAGE "$NEW_IMAGE" \
-            '.containerDefinitions[0].image = $IMAGE
-             | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
-            task-def.json > new-task-def.json
-
-      - name: Register new task definition revision
-        id: register
-        run: |
-          NEW_ARN=$(aws ecs register-task-definition \
-            --cli-input-json file://new-task-def.json \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
-          echo "arn=$NEW_ARN" >> "$GITHUB_OUTPUT"
-
-      - name: Update ECS service to use new revision
-        run: |
-          aws ecs update-service \
-            --cluster studymate \
-            --service studymate-worker \
-            --task-definition ${{ steps.register.outputs.arn }}
+          helm upgrade --install studymate ./charts/studymate \
+            --namespace studymate \
+            --set authService.image.tag=${{ github.event.workflow_run.head_sha }} \
+            --set coreApi.image.tag=${{ github.event.workflow_run.head_sha }} \
+            --set worker.image.tag=${{ github.event.workflow_run.head_sha }} \
+            --wait --timeout 5m
 
   deploy-frontend:
     if: github.event.workflow_run.conclusion == 'success'

@@ -1,0 +1,5 @@
+image:
+  repository: ""
+  tag: "latest"
+replicaCount: 1
+irsaRoleArn: ""

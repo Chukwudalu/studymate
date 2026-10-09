@@ -1,0 +1,13 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY apps/auth_service/requirements.txt apps/auth_service/requirements.txt
+RUN pip install --no-cache-dir -r apps/auth_service/requirements.txt
+
+COPY apps/auth_service apps/auth_service
+COPY packages/shared_types packages/shared_types
+COPY packages/shared_auth packages/shared_auth
+
+EXPOSE 8000
+CMD ["uvicorn", "apps.auth_service.main:app", "--host", "0.0.0.0", "--port", "8000"]

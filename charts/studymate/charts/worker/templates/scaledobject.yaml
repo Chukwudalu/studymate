@@ -1,0 +1,24 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker
+  namespace: studymate
+spec:
+  scaleTargetRef:
+    name: worker
+  minReplicaCount: 0
+  maxReplicaCount: 3
+  cooldownPeriod: 60
+  triggers:
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: {{ .Values.sqsQueueUrl }}
+        # 1 worker replica per 5 visible messages - roughly mirrors the
+        # 0/5/15-message step tiers the old CloudWatch-alarm setup used.
+        queueLength: "5"
+        awsRegion: {{ .Values.sqsQueueRegion }}
+        # Uses the KEDA operator's own IRSA role (studymate-keda-irsa) to poll
+        # queue depth - deliberately NOT the worker pod's own role, which
+        # only has receive/delete/change-visibility, not GetQueueAttributes
+        # for polling. Least privilege: two different roles, two different jobs.
+        identityOwner: operator

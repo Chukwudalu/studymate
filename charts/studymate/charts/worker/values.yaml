@@ -1,0 +1,6 @@
+image:
+  repository: ""
+  tag: "latest"
+irsaRoleArn: ""
+sqsQueueUrl: ""
+sqsQueueRegion: "us-west-2"

@@ -1,4 +1,4 @@
-from apps.api import chat
+from apps.core_api import chat
 from packages.shared_types.schemas import NoteBlock
 
 

@@ -9,6 +9,17 @@ terraform {
             source  = "hashicorp/tls"
             version = "~> 4.0"
         }
+
+        helm = {
+            source = "hashicorp/helm"
+            version = "~>2.0"
+
+        }
+
+        kubernetes = {
+            source = "hashicorp/kubernetes"
+            version = "~> 2.0"
+        }
     }
 }
 
@@ -17,7 +28,8 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "lecture_audio" {
-    bucket = var.bucket_name
+    bucket        = var.bucket_name
+    force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "lecture_audio" {
@@ -64,6 +76,25 @@ resource "aws_ecr_repository" "api" {
 
     force_delete = true
 }
+
+resource "aws_ecr_repository" "auth_service" {
+    name = "studymate-auth-service"
+    image_tag_mutability = "MUTABLE"
+
+    force_delete = true
+}
+
+# Separate from aws_ecr_repository.api (which still backs the live Lambda) -
+# core-api is the new EKS-deployed service built from the same lecture-CRUD
+# code, but it needs its own image/repo during the migration since both are
+# running in parallel until Phase 5's cutover.
+resource "aws_ecr_repository" "core_api" {
+    name                 = "studymate-core-api"
+    image_tag_mutability = "MUTABLE"
+
+    force_delete = true
+}
+
 
 resource "aws_iam_role" "api_lambda" {
     name = "studymate-api-lambda"

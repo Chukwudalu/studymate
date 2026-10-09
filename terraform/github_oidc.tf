@@ -59,7 +59,19 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
         Resource = [
           aws_ecr_repository.api.arn,
           aws_ecr_repository.worker.arn,
+          aws_ecr_repository.auth_service.arn,
+          aws_ecr_repository.core_api.arn,
         ]
+      },
+      {
+        # Needed by `aws eks update-kubeconfig` in deploy.yml's deploy-k8s
+        # job - just enough to generate a kubeconfig pointed at the cluster.
+        # Actual in-cluster permissions come from the access entry below,
+        # not from this IAM action.
+        Sid      = "EksDescribe"
+        Effect   = "Allow"
+        Action   = ["eks:DescribeCluster"]
+        Resource = aws_eks_cluster.main.arn
       },
       {
         Sid      = "LambdaDeploy"
@@ -98,4 +110,26 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
       },
     ]
   })
+}
+
+# Lets the CI role's `helm upgrade`/`kubectl apply` calls actually work
+# against the cluster. Scoped to AmazonEKSEditPolicy (create/update/delete
+# Deployments, Services, Secrets, Ingresses, etc.) and, critically, scoped
+# to only the `studymate` namespace - NOT cluster-admin. A compromised CI
+# token can redeploy our own app; it can't touch the node group, other
+# namespaces, or cluster-wide resources like the Karpenter/KEDA CRDs.
+resource "aws_eks_access_entry" "github_actions" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_iam_role.github_actions_deploy.arn
+}
+
+resource "aws_eks_access_policy_association" "github_actions" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_iam_role.github_actions_deploy.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+
+  access_scope {
+    type       = "namespace"
+    namespaces = ["studymate"]
+  }
 }

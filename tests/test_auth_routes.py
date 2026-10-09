@@ -2,9 +2,9 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.api import main
-from apps.api.auth import hash_password
-from apps.api.users_db import EmailAlreadyRegistered
+from apps.auth_service import main
+from apps.auth_service.auth import hash_password
+from apps.auth_service.users_db import EmailAlreadyRegistered
 
 
 @pytest.fixture

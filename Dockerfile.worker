@@ -9,7 +9,7 @@ COPY apps/worker/requirements.txt apps/worker/requirements.txt
 RUN pip install --no-cache-dir -r apps/worker/requirements.txt
 
 COPY apps/worker apps/worker
-COPY apps/api apps/api
+COPY apps/core_api apps/core_api
 COPY services/pipeline services/pipeline
 COPY packages/shared_types packages/shared_types
 

@@ -1,0 +1,13 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY apps/core_api/requirements.txt apps/core_api/requirements.txt
+RUN pip install --no-cache-dir -r apps/core_api/requirements.txt
+
+COPY apps/core_api apps/core_api
+COPY packages/shared_types packages/shared_types
+COPY packages/shared_auth packages/shared_auth
+
+EXPOSE 8000
+CMD ["uvicorn", "apps.core_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

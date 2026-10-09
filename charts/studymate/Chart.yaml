@@ -1,0 +1,16 @@
+apiVersion: v2
+name: studymate
+description: StudyMate backend services (auth-service, core-api, worker)
+version: 0.1.0
+dependencies:
+  - name: auth-service
+    version: "0.1.0"
+    repository: "file://charts/auth-service"
+    alias: authService
+  - name: core-api
+    version: "0.1.0"
+    repository: "file://charts/core-api"
+    alias: coreApi
+  - name: worker
+    version: "0.1.0"
+    repository: "file://charts/worker"

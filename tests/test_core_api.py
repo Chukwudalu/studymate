@@ -2,7 +2,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.api import main
+from apps.core_api import main
 from packages.shared_types.schemas import LectureState, LectureSummary
 
 USER_ID = "11111111-1111-1111-1111-111111111111"
