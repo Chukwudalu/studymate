@@ -1,6 +1,8 @@
 import type { ChatMessage, LectureState, LectureSummary } from "./types";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// Production builds default to same-origin: Vercel rewrites the API paths to the
+// backend (see vercel.json). Dev falls back to the local backend.
+const API_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:8000");
 
 // credentials: "include" sends/receives the httpOnly session cookie cross-site
 // (Vercel -> API Gateway). The token itself is never visible to this JS at all.

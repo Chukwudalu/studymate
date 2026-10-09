@@ -1,0 +1,10 @@
+{
+  "rewrites": [
+    { "source": "/auth/:path*", "destination": "http://k8s-studymat-studymat-3472fb7383-1538864527.us-west-2.elb.amazonaws.com/auth/:path*" },
+    { "source": "/lectures", "destination": "http://k8s-studymat-studymat-3472fb7383-1538864527.us-west-2.elb.amazonaws.com/lectures" },
+    { "source": "/lectures/:path*", "destination": "http://k8s-studymat-studymat-3472fb7383-1538864527.us-west-2.elb.amazonaws.com/lectures/:path*" },
+    { "source": "/subjects", "destination": "http://k8s-studymat-studymat-3472fb7383-1538864527.us-west-2.elb.amazonaws.com/subjects" },
+    { "source": "/uploads/:path*", "destination": "http://k8s-studymat-studymat-3472fb7383-1538864527.us-west-2.elb.amazonaws.com/uploads/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
