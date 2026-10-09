@@ -188,25 +188,39 @@ down.
 
 ---
 
-## What's still unverified
+## Part 4 - The first live run, and the bug it found
 
-Everything Terraform and `kubectl` can confirm has been checked: the IAM
-policy, the access entry, the access policy's exact scope, the absence of
-a stray `RoleBinding` (correctly absent — EKS's access-entry system
-authorizes directly, it doesn't materialize RBAC objects). What's **not**
-verified is a real, live GitHub Actions run — that needs actual repository
-secrets configured on GitHub's side, which only you can do:
+The first real run (commit `06f01ef`) got through CI, all three image
+builds, the kubeconfig step and the secrets step, which confirmed the
+namespace-scoped access entry works. Then `helm upgrade` failed:
 
 ```
-DATABASE_URL, AUTH_JWT_SECRET, OPENAI_API_KEY, ANTHROPIC_API_KEY,
-BUCKET_NAME, SQS_QUEUE_URL
+scaledobjects.keda.sh "worker" is forbidden: User ".../studymate-github-actions-deploy/GitHubActions"
+cannot get resource "scaledobjects" in API group "keda.sh" in the namespace "studymate"
 ```
 
-(`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` already exist for
-`deploy-frontend`.) Once those are set and a real push to `main` happens,
-the first live run is the true end-to-end test of this phase — watch it
-closely the first time, since a scoping mistake this specific (works with
-admin credentials locally, fails only under the CI role's restricted
-access) is exactly the kind of bug that's invisible until the exact
-credentials that will actually be used in production are the ones making
-the call.
+**Why:** `AmazonEKSEditPolicy` is a fixed list of rules for built-in kinds
+(Deployments, Services, Secrets, Ingresses...). It says nothing about custom
+resources, and the worker chart ships a KEDA `ScaledObject`. Admin
+credentials never hit this because they can do anything, so it was
+invisible locally.
+
+**Fix (least privilege):** keep the Edit policy, and add one extra grant in
+the same namespace.
+1. `kubernetes_groups = ["studymate-deployers"]` on the CI access entry
+   (`github_oidc.tf`) puts the role's requests into a Kubernetes group.
+2. A `Role` allowing only `keda.sh/scaledobjects`, plus a `RoleBinding` to
+   that group (`eks_addons.tf`).
+
+Both new `kubernetes_*` resources carry the usual `depends_on` on the admin
+access entry (see bug 10 in HANDOFF.md). After applying, re-running just the
+failed job passed, and the cluster ran the SHA-tagged images.
+
+General lesson: any new CRD the chart ships needs a matching grant for the
+CI role. Check this first if a future deploy fails with `forbidden` on a
+non-core API group.
+
+## Status
+
+Verified live: CI, image build/push over OIDC, secret apply, `helm upgrade`
+and the Vercel deploy all run green from a push to `main`.

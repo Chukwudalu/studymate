@@ -183,3 +183,51 @@ resource "helm_release" "keda" {
 # Karpenter's own CRDs (EC2NodeClass/NodePool) live in eks_karpenter_crds.tf,
 # applied in a second `terraform apply` pass once the cluster actually exists -
 # see the migration notes for why they can't be in this file's first apply.
+
+
+# Extra permission for the CI role on top of AmazonEKSEditPolicy: the Edit
+# policy has no rules for custom resources, and the worker chart ships a KEDA
+# ScaledObject. Bound to the group set on aws_eks_access_entry.github_actions.
+resource "kubernetes_role_v1" "studymate_deployer_keda" {
+  metadata {
+    name      = "keda-scaledobject-editor"
+    namespace = kubernetes_namespace.studymate.metadata[0].name
+  }
+
+  rule {
+    api_groups = ["keda.sh"]
+    resources  = ["scaledobjects"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+
+  # Same reasoning as the other in-cluster resources: keep Terraform's own
+  # cluster access alive until this is destroyed.
+  depends_on = [
+    aws_eks_access_entry.terraform_admin,
+    aws_eks_access_policy_association.terraform_admin,
+  ]
+}
+
+resource "kubernetes_role_binding_v1" "studymate_deployer_keda" {
+  metadata {
+    name      = "keda-scaledobject-editor"
+    namespace = kubernetes_namespace.studymate.metadata[0].name
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role_v1.studymate_deployer_keda.metadata[0].name
+  }
+
+  subject {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Group"
+    name      = "studymate-deployers"
+  }
+
+  depends_on = [
+    aws_eks_access_entry.terraform_admin,
+    aws_eks_access_policy_association.terraform_admin,
+  ]
+}

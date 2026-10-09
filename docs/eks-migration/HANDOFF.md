@@ -48,7 +48,7 @@ The full original plan (still accurate) is at
 | 0 | EKS cluster, Karpenter, KEDA, ALB controller | ✅ Done, verified, documented |
 | 1 | Split `apps/api` → `auth-service` + `core-api` | ✅ Done, verified, documented |
 | 2 | Helm charts, deploy to real cluster, real ALB | ✅ Done, verified, documented |
-| 3 | Wire GitHub Actions CI/CD | ✅ Code done; **live CI run not yet verified** (needs GitHub secrets — see below) |
+| 3 | Wire GitHub Actions CI/CD | ✅ Done, verified by a real green run on `main` |
 | 4 | Cutover: HTTPS/ACM, point frontend at ALB | ⬜ Not started |
 | 5 | Decommission Lambda/API Gateway/ECS | ⬜ Not started (the one genuinely destructive step — do it deliberately, reviewed, on its own) |
 
@@ -60,21 +60,22 @@ just executing it.
 
 ## Current live AWS state (as of last check)
 
-**Everything is currently TORN DOWN.** Confirmed: `terraform state list`
-returns empty (0 resources), nothing billing. This was a deliberate
-end-of-session teardown, not a crash. Verify this is still true before
-doing anything else, in case time has passed since:
+**Everything is currently UP and billing** (rebuilt on 2026-10-08; ~90
+resources, 2 nodes). Verify before assuming - it may have been torn down
+since:
 
 ```bash
-cd terraform && terraform state list | wc -l   # should be 0 if torn down, ~90 if up
+cd terraform && terraform state list | wc -l   # ~90 if up, 0 if torn down
 aws eks describe-cluster --name studymate --region us-west-2 --query 'cluster.status' 2>&1
 ```
 
-**Your first real action in a new session should be rebuilding** (see
-"How to rebuild from zero" below) — it's a known, fast, mostly-clean
-process now; every bug hit across Phases 0-3 is fixed in the Terraform/Helm
-code itself, not just patched live. Expect roughly 15-20 minutes end to
-end (EKS cluster creation is the slow part, ~10-15 min alone).
+If torn down, follow "How to rebuild from zero" below. Rebuild gotchas seen:
+the first `terraform apply` can fail on access-policy associations (404, the
+access entry hasn't propagated yet) and on the Lambda (image pushed too
+late) - just re-run apply, nothing is wrong. The ALB security group ID in
+`charts/studymate/values.yaml` must be updated after each rebuild. GitHub
+Actions secrets (DB, JWT, OpenAI, Anthropic, bucket, queue) are already set
+on the repo.
 
 ### Kubeconfig — important
 
@@ -169,6 +170,11 @@ patched live — but worth knowing about if something looks newly broken:
     rule: **any `kubernetes_*`/`helm_release` Terraform resource needs
     this `depends_on`**, or a `terraform destroy` can revoke Terraform's
     own cluster access before reaching it.
+
+11. The CI role (`AmazonEKSEditPolicy`) can't touch custom resources. KEDA's
+    `ScaledObject` needed an extra namespaced `Role`/`RoleBinding` bound to
+    the `studymate-deployers` group on the access entry. Any new CRD in the
+    chart needs the same. See Phase 3 doc, Part 4.
 
 ## How to rebuild from zero (if torn down)
 
@@ -280,10 +286,10 @@ before retrying `terraform destroy`.
 
 ## Immediate next steps
 
-**0. Rebuild first.** Everything is torn down (see "Current live AWS
-state" above) — run "How to rebuild from zero" before anything else. Once
-the cluster's up and Phase 2's verification flow passes again (signup →
-cross-service auth → presign → KEDA scale-up/down), move on to Phase 4:
+Phases 0-3 are done and verified on the rebuilt cluster. Remaining is
+Phase 4 (note: a failing job is retried via SQS for ~45 min before the DLQ,
+which keeps KEDA's worker up that long - by design; the worker image also
+lacks `PYTHONUNBUFFERED`, so `kubectl logs` is empty until exit):
 
 1. Request/validate an ACM certificate for a real domain (or decide to
    stay on the raw ALB hostname for now — TLS still needs *a* cert either

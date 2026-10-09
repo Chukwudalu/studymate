@@ -121,6 +121,12 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
 resource "aws_eks_access_entry" "github_actions" {
   cluster_name  = aws_eks_cluster.main.name
   principal_arn = aws_iam_role.github_actions_deploy.arn
+
+  # AmazonEKSEditPolicy only covers built-in resource kinds, so it can't
+  # touch KEDA's ScaledObject (found by the first live CI run). Mapping the
+  # role into this group lets the Role/RoleBinding in eks_addons.tf grant
+  # exactly that one extra permission, in this namespace only.
+  kubernetes_groups = ["studymate-deployers"]
 }
 
 resource "aws_eks_access_policy_association" "github_actions" {
