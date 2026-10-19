@@ -1,5 +1,5 @@
 data "tls_certificate" "github_actions" {
-    url = "https://token.actions.githubusercontent.com/.well-known/openid-configuration"
+  url = "https://token.actions.githubusercontent.com/.well-known/openid-configuration"
 }
 
 resource "aws_iam_openid_connect_provider" "github_actions" {
@@ -57,7 +57,6 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
           "ecr:BatchGetImage",
         ]
         Resource = [
-          aws_ecr_repository.api.arn,
           aws_ecr_repository.worker.arn,
           aws_ecr_repository.auth_service.arn,
           aws_ecr_repository.core_api.arn,
@@ -72,41 +71,6 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
         Effect   = "Allow"
         Action   = ["eks:DescribeCluster"]
         Resource = aws_eks_cluster.main.arn
-      },
-      {
-        Sid      = "LambdaDeploy"
-        Effect   = "Allow"
-        Action   = ["lambda:UpdateFunctionCode", "lambda:GetFunction"]
-        Resource = aws_lambda_function.api.arn
-      },
-      {
-        Sid    = "EcsDeploy"
-        Effect = "Allow"
-        Action = [
-          "ecs:RegisterTaskDefinition",
-          "ecs:DescribeTaskDefinition",
-        ]
-        Resource = "*"
-      },
-      {
-        Sid      = "EcsUpdateService"
-        Effect   = "Allow"
-        Action   = ["ecs:UpdateService", "ecs:DescribeServices"]
-        Resource = aws_ecs_service.worker.id
-      },
-      {
-        Sid    = "PassEcsRoles"
-        Effect = "Allow"
-        Action = ["iam:PassRole"]
-        Resource = [
-          aws_iam_role.worker_execution.arn,
-          aws_iam_role.worker_task.arn,
-        ]
-        Condition = {
-          StringEquals = {
-            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
-          }
-        }
       },
     ]
   })

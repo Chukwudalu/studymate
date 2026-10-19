@@ -9,21 +9,25 @@ directory — read those when you need depth, use this doc for orientation.
 ## The project, in one paragraph
 
 StudyMate is a small app (FastAPI backend, React frontend on Vercel,
-Supabase Postgres) currently running on AWS Lambda (API) + ECS Fargate
-(worker) + API Gateway, provisioned by Terraform. We're migrating it to
-Kubernetes on EKS, split into 3 microservices (`auth-service`, `core-api`,
-`worker`), as a learning/portfolio exercise in Docker, Kubernetes,
-Terraform, and CI/CD — done properly, not as a toy. **Full replacement**
-is the goal: Lambda/API Gateway/ECS get deleted once the EKS path is
-verified end-to-end and cut over. Supabase, S3, and SQS stay as-is — only
-compute moves.
+Supabase Postgres). It was migrated from AWS Lambda + ECS Fargate +
+API Gateway to Kubernetes on EKS, split into 3 microservices
+(`auth-service`, `core-api`, `worker`), as a learning/portfolio exercise in
+Docker, Kubernetes, Terraform, and CI/CD — done properly, not as a toy.
+**All phases (0-5) are complete.** The Lambda/API Gateway/ECS stack has been
+deleted; EKS is the only compute path. Supabase, S3, and SQS stayed as-is.
+
+**This AWS stack is a portfolio showcase, not the product.** Real users will
+use a separate, cheaper project (Vercel + one Railway service). It shares
+nothing with this stack. A self-contained spec for building it is in
+`docs/RAILWAY_REBUILD_SPEC.md`. The AWS stack is brought up for demos and torn
+down otherwise to avoid cost.
 
 The full original plan (still accurate) is at
 `/home/jeremiah/.claude/plans/zany-dancing-bunny.md`.
 
 ## Decisions already made — do not re-litigate these
 
-1. Full replacement of Lambda/ECS, not permanent side-by-side.
+1. Full replacement of Lambda/ECS, not permanent side-by-side (done, Phase 5).
 2. 3 services: `auth-service` (signup/login/reset/logout/me, owns no AWS
    IAM — only talks to Supabase), `core-api` (lecture CRUD, presign, chat,
    enqueue — S3+SQS via IRSA), `worker` (SQS consumer + LangGraph
@@ -40,6 +44,8 @@ The full original plan (still accurate) is at
 7. Secrets: plain Kubernetes `Secret`, applied by CI from GitHub encrypted
    secrets. Not AWS Secrets Manager / External Secrets Operator — judged
    as unneeded complexity at this scale.
+8. This stack is a showcase only; the user-facing product is a separate
+   project with its own database, storage, queue and keys (see top).
 
 ## Status by phase
 
@@ -49,33 +55,41 @@ The full original plan (still accurate) is at
 | 1 | Split `apps/api` → `auth-service` + `core-api` | ✅ Done, verified, documented |
 | 2 | Helm charts, deploy to real cluster, real ALB | ✅ Done, verified, documented |
 | 3 | Wire GitHub Actions CI/CD | ✅ Done, verified by a real green run on `main` |
-| 4 | Cutover: HTTPS/ACM, point frontend at ALB | ⬜ Not started |
-| 5 | Decommission Lambda/API Gateway/ECS | ⬜ Not started (the one genuinely destructive step — do it deliberately, reviewed, on its own) |
+| 4 | HTTPS/ACM on `api.steeze.ca`, secure cookies, frontend rewrite | ✅ Done, verified live, documented |
+| 5 | Decommission Lambda/API Gateway/ECS | ✅ Done (25 resources destroyed, reviewed plan), documented |
 
 Read `docs/eks-migration/phase-0-cluster-bootstrap.md`,
-`phase-1-service-split.md`, `phase-2-helm-deploy.md`, `phase-3-cicd.md` for
-full detail on each. They're written to actually teach the concepts, not
+`phase-1-service-split.md`, `phase-2-helm-deploy.md`, `phase-3-cicd.md`,
+`phase-4-https-domain.md`, `phase-5-decommission.md` for full detail on each. They're written to actually teach the concepts, not
 just log commands — worth reading in order if you're studying this, not
 just executing it.
 
-## Current live AWS state (as of last check)
+## Current live AWS state
 
-**Everything is currently UP and billing** (rebuilt on 2026-10-08; ~90
-resources, 2 nodes). Verify before assuming - it may have been torn down
-since:
+Check before assuming anything - this stack is torn down between sessions:
 
 ```bash
-cd terraform && terraform state list | wc -l   # ~90 if up, 0 if torn down
+cd terraform && terraform state list | wc -l   # ~68 if up, 0 if torn down
 aws eks describe-cluster --name studymate --region us-west-2 --query 'cluster.status' 2>&1
 ```
 
-If torn down, follow "How to rebuild from zero" below. Rebuild gotchas seen:
-the first `terraform apply` can fail on access-policy associations (404, the
-access entry hasn't propagated yet) and on the Lambda (image pushed too
-late) - just re-run apply, nothing is wrong. The ALB security group ID in
-`charts/studymate/values.yaml` must be updated after each rebuild. GitHub
-Actions secrets (DB, JWT, OpenAI, Anthropic, bucket, queue) are already set
-on the repo.
+If torn down, follow "How to rebuild from zero" below. Things that bite on a
+rebuild:
+- The first `terraform apply` can fail on access-policy associations (404,
+  the access entry hasn't propagated yet). Re-run apply; nothing is wrong.
+- The ALB security group ID in `charts/studymate/values.yaml` changes every
+  rebuild, and so does `acmCertificateArn` (the ACM cert is part of
+  Terraform state).
+- **The `api` CNAME in Namecheap must be re-pointed at the new ALB hostname**
+  every rebuild. The ACM *validation* CNAME does not change, so the new cert
+  issues within seconds.
+- The **Supabase free-tier project pauses after ~a week idle**. Signup
+  returning 500 with `ENOTFOUND tenant/user ... not found` in the auth-service
+  logs means restore the project in the Supabase dashboard (not an app bug).
+- GitHub Actions secrets (DB, JWT, OpenAI, Anthropic, bucket, queue, Vercel)
+  are already set on the repo and survive teardowns.
+- The Vercel frontend keeps working only while the cluster is up
+  (`apps/web/vercel.json` rewrites to `https://api.steeze.ca`).
 
 ### Kubeconfig — important
 
@@ -100,18 +114,18 @@ before using it, or call it by full path.
 
 - Karpenter scale-up/scale-down: an oversized test pod triggered a real
   EC2 node launch and termination.
-- Full user flow over the real ALB (HTTP, no domain — raw ELB hostname):
-  signup on `auth-service` → cookie accepted by `core-api` (proves
-  cross-service auth works) → S3 presign → SQS enqueue → KEDA scales
-  `worker` 0→1 → worker processes the job (real S3 call via IRSA, correct
-  403 since no real audio was uploaded, correctly written back to
-  Postgres as a failure) → KEDA scales back to 0.
-- All 51 pytest tests pass against the new `auth_service`/`core_api`
-  modules.
-- Terraform's own IAM/access-entry setup for CI confirmed correct
-  (`aws eks list-associated-access-policies`), but **the actual GitHub
-  Actions workflow has never run for real** — see Phase 3 doc, "What's
-  still unverified."
+- Full user flow: signup on `auth-service` → cookie accepted by `core-api`
+  (cross-service auth) → S3 presign → SQS enqueue → KEDA scales `worker`
+  0→1 → worker processes the job (real S3 call via IRSA; correct 403 for a
+  fake audio key; failure written back to Postgres) → KEDA scales to 0 once
+  the queue is empty. Also verified end to end with real recordings and the
+  full pipeline (transcript, notes, flashcards, quiz, chat).
+- HTTPS: valid ACM cert on `api.steeze.ca`, HTTP→HTTPS redirect, session
+  cookie `HttpOnly; Secure; SameSite=None`, full flow through the Vercel
+  rewrite.
+- CI/CD: CI + Deploy run green from a plain push to `main` (images over OIDC,
+  secrets, `helm upgrade`, Vercel deploy).
+- 51 pytest tests pass against `auth_service`/`core_api`.
 
 ## Real bugs fixed along the way (don't reintroduce these)
 
@@ -156,12 +170,12 @@ patched live — but worth knowing about if something looks newly broken:
    cost significant time both times.
 8. ECR repos have `force_delete = true` — every fresh `terraform apply`
    after a `destroy` needs images re-pushed *before* Lambda/ECS/anything
-   referencing `:latest` will succeed. Always push all 4 images
-   (`api`, `worker`, `auth-service`, `core-api`) right after `terraform
+   referencing `:latest` will succeed (the Lambda no longer exists, so this now only matters for CI and the first helm deploy). Always push all 3 images
+   (`worker`, `auth-service`, `core-api`) right after `terraform
    apply` creates the ECR repos, ideally before it reaches the resources
    that reference them.
-9. Docker builds need `--provenance=false --sbom=false` or Lambda
-   rejects the resulting OCI manifest-list image format.
+9. Docker builds use `--provenance=false --sbom=false` (needed when Lambda
+   was in the stack; harmless to keep).
 10. `kubernetes_namespace.studymate` (added in Phase 3) hit the exact same
     "Unauthorized" failure as bug 7's `helm_release`/`kubernetes_manifest`
     resources during a teardown — it was added later and didn't get the
@@ -176,49 +190,63 @@ patched live — but worth knowing about if something looks newly broken:
     the `studymate-deployers` group on the access entry. Any new CRD in the
     chart needs the same. See Phase 3 doc, Part 4.
 
+12. The CI role's `AmazonEKSEditPolicy` can't touch custom resources: KEDA's
+    `ScaledObject` needed an extra namespaced `Role`/`RoleBinding` for the
+    `studymate-deployers` group (Phase 3 doc, Part 4). Any new CRD in the
+    chart needs the same.
+13. A failing job is retried by SQS for ~45 min (900 s visibility timeout x 3
+    receives, then DLQ), which keeps KEDA's worker up. Purge the queue after
+    testing with fake audio keys.
+14. The worker image needs `PYTHONUNBUFFERED=1` or `kubectl logs` is empty
+    until the process exits (fixed in `Dockerfile.worker`).
+
 ## How to rebuild from zero (if torn down)
 
-This is now a known, mostly-clean sequence (all bugs above are pre-fixed
-in the code):
+All bugs above are pre-fixed in the code. ~20 minutes end to end (EKS cluster
+creation is ~10-15 min of that).
 
 ```bash
 cd terraform
-mv eks_karpenter_crds.tf eks_karpenter_crds.tf.disabled   # if not already
-terraform apply   # creates everything except the 2 Karpenter CRD resources
-# push all 4 images (see below) - do this as soon as ECR repos exist,
-# ideally in parallel with the apply above
-mv eks_karpenter_crds.tf.disabled eks_karpenter_crds.tf
-terraform apply   # picks up EC2NodeClass + NodePool now that the cluster exists
-
-# Images:
+# eks_karpenter_crds.tf must be named .disabled for the FIRST apply (its
+# resources need the cluster's CRDs, which Helm installs during this apply):
+ls eks_karpenter_crds.tf.disabled || mv eks_karpenter_crds.tf eks_karpenter_crds.tf.disabled
+terraform plan -out=rebuild.tfplan && terraform apply rebuild.tfplan
+# Push the 3 images as soon as the ECR repos exist (parallel with the apply):
 aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 458586357596.dkr.ecr.us-west-2.amazonaws.com
-for svc in api worker auth-service core-api; do
+for svc in worker auth-service core-api; do
   docker buildx build --provenance=false --sbom=false -f Dockerfile.$svc \
     -t 458586357596.dkr.ecr.us-west-2.amazonaws.com/studymate-$svc:latest --push .
 done
+# If apply errored on an access-policy association (404), just re-run it.
+mv eks_karpenter_crds.tf.disabled eks_karpenter_crds.tf
+terraform apply    # second pass: EC2NodeClass + NodePool
 
-# Deploy:
+# Update charts/studymate/values.yaml with the NEW values:
+terraform state show aws_security_group.alb | grep '^\s*id '   # -> albSecurityGroupId
+terraform output -raw acm_certificate_arn                       # -> acmCertificateArn
+# (the cert is ISSUED within seconds - the validation CNAME in Namecheap is permanent)
+
 export KUBECONFIG=/tmp/studymate-kubeconfig
 aws eks update-kubeconfig --name studymate --region us-west-2 --kubeconfig /tmp/studymate-kubeconfig
-# get the new ALB security group ID and update charts/studymate/values.yaml's
-# albSecurityGroupId (security group IDs are NOT deterministic across rebuilds,
-# unlike IAM role ARNs which are)
-terraform state show aws_security_group.alb | grep '^\s*id '
 
-# Secrets (values from .env):
+# Secrets (values from .env; COOKIE_SECURE is true now that the ALB serves HTTPS):
 kubectl create secret generic studymate-secrets --namespace studymate \
   --from-literal=DATABASE_URL="..." --from-literal=AUTH_JWT_SECRET="..." \
   --from-literal=OPENAI_API_KEY="..." --from-literal=ANTHROPIC_API_KEY="..." \
-  --from-literal=S3_BUCKET="..." --from-literal=SQS_QUEUE_URL="..." \
-  --from-literal=COOKIE_SECURE=false \
+  --from-literal=S3_BUCKET="studymate-lecture-audio-jeremiah" \
+  --from-literal=SQS_QUEUE_URL="https://sqs.us-west-2.amazonaws.com/458586357596/studymate-lectures" \
+  --from-literal=COOKIE_SECURE=true \
   --dry-run=client -o yaml | kubectl apply -f -
-# (namespace itself already exists via terraform import if state is intact;
-# if truly starting from zero state, terraform apply above creates it)
 
 export PATH="$HOME/.local/bin:$PATH"
-cd charts/studymate
-helm upgrade --install studymate . --namespace studymate --wait --timeout 5m
+cd ../charts/studymate
+helm upgrade --install studymate . --namespace studymate --wait --timeout 6m
+
+# Then: get the ALB hostname and update the `api` CNAME in Namecheap
+kubectl get ingress studymate -n studymate -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
+Commit the `values.yaml` change (and push - CI redeploys the same config).
+Check Supabase isn't paused before testing signup.
 
 Expect one likely hiccup even on a clean rebuild: freshly-launched EC2
 nodes can have a 1-3 minute window of flaky cross-node/ALB connectivity
@@ -228,6 +256,9 @@ seems unreachable right after a node just joined, wait a minute or
 `kubectl delete pod` to reschedule it before assuming something's wrong.
 
 ## How to tear down cleanly (confirmed working, this exact sequence)
+
+Last run: 79 resources destroyed in ~11 min in a single pass (the managed node
+group takes ~8 min of that, the cluster ~2 min - normal for EKS).
 
 This procedure has now been run successfully end-to-end. Follow it in
 order — skipping the verification steps is exactly what caused multi-hour
@@ -240,7 +271,7 @@ export KUBECONFIG=/tmp/studymate-kubeconfig
 #    gracefully deprovision its own nodes, WHILE their controllers are
 #    still alive to react:
 kubectl delete ingress studymate -n studymate --wait --timeout=60s
-kubectl scale deployment auth-service core-api --replicas=0 -n studymate
+kubectl scale deployment auth-service core-api worker --replicas=0 -n studymate
 # (worker is already 0 unless a job is actively running)
 
 # 2. VERIFY the ALB actually got deleted before proceeding - don't just wait a
@@ -255,7 +286,8 @@ done
 # 3. VERIFY no Karpenter NodeClaims are left - if any are, delete them
 #    explicitly and wait for the node to actually disappear:
 kubectl get nodeclaims
-# if any are listed: kubectl delete nodeclaim <name> --wait --timeout=90s
+# if any are listed (a Karpenter node is usually left): kubectl delete nodeclaim <name> --wait --timeout=120s
+# then confirm the EC2 instance is gone: aws ec2 describe-instances --filters Name=tag:karpenter.sh/nodepool,Values=default Name=instance-state-name,Values=running,pending
 kubectl get nodes   # should show only the one system node group node left
 
 # 4. Only now, remove the cluster-internal Terraform resources from state
@@ -265,6 +297,7 @@ kubectl get nodes   # should show only the one system node group node left
 cd terraform
 terraform state rm kubernetes_manifest.karpenter_node_class kubernetes_manifest.karpenter_node_pool \
   kubernetes_namespace.studymate \
+  kubernetes_role_v1.studymate_deployer_keda kubernetes_role_binding_v1.studymate_deployer_keda \
   helm_release.aws_load_balancer_controller helm_release.karpenter helm_release.keda
 mv eks_karpenter_crds.tf eks_karpenter_crds.tf.disabled
 
@@ -284,32 +317,23 @@ EC2 instances (`aws ec2 describe-instances --filters
 directly (`aws elbv2 delete-load-balancer` / `aws ec2 terminate-instances`)
 before retrying `terraform destroy`.
 
-## Immediate next steps
+## What's left
 
-Phases 0-3 are done and verified on the rebuilt cluster. Remaining is
-Phase 4 (note: a failing job is retried via SQS for ~45 min before the DLQ,
-which keeps KEDA's worker up that long - by design; the worker image also
-lacks `PYTHONUNBUFFERED`, so `kubectl logs` is empty until exit):
-
-1. Request/validate an ACM certificate for a real domain (or decide to
-   stay on the raw ALB hostname for now — TLS still needs *a* cert either
-   way, ACM's free ones work fine on any domain you control DNS for).
-2. Add HTTPS to `charts/studymate/values.yaml`'s `acmCertificateArn` and
-   redeploy — the Ingress template already supports this conditionally
-   (see `charts/studymate/templates/ingress.yaml`).
-3. Flip `COOKIE_SECURE` to `true` in both the manual secret-creation
-   commands and `deploy.yml` — the frontend's auth cookie is
-   `Secure`+`SameSite=None` and silently won't be set by browsers over
-   plain HTTP.
-4. Point the frontend's Vercel env var (API base URL) at the new
-   ALB/domain, deploy, smoke-test against real production traffic while
-   Lambda/ECS still exist untouched as a rollback path.
-5. Monitor before proceeding to Phase 5.
-
-Then **Phase 5**: delete the Lambda/API Gateway/ECS Terraform resources
-as one distinct, carefully-reviewed `terraform plan`/`apply` — the only
-genuinely destructive step in the whole migration, per the user's explicit
-preference to always review before applying anything destructive.
+**Nothing required.** All six phases are complete and documented. Optional
+follow-ups, none designed or started:
+- Make the `api` DNS record automatic (Route 53 hosted zone for the subdomain
+  + ExternalDNS or Terraform) so a rebuild doesn't need a manual CNAME edit.
+- GitOps (ArgoCD) instead of push-based `helm upgrade` (decision 3).
+- Tighten failed-job behaviour: fail fast on permanent errors (missing file,
+  bad API key) instead of 3 x 15 min SQS retries.
+- Capture a demo recording and screenshots while the stack is up (it is torn
+  down between sessions) and link them from `README.md`.
+- Database hygiene: `users` has row-level security off and the Supabase `anon`
+  role has full privileges on it; enable RLS and revoke the grants (the app
+  connects as `postgres`, which bypasses RLS, so nothing breaks). Rotate the DB
+  password if it was ever printed in a log.
+- `terraform/terraform.tfvars` may still contain old application secrets that
+  Terraform no longer reads; they can be deleted.
 
 ## Things this session learned about how the user wants to work
 
@@ -324,6 +348,6 @@ preference to always review before applying anything destructive.
   explicitly said they want to study these later.
 - Is doing this as a resume/portfolio project on a self-imposed one-week
   deadline — bias toward actually finishing phases over gold-plating.
-- Only commit/push to git when explicitly asked — nothing in this
-  migration has been committed yet as of this doc being written (verify
-  with `git status` before assuming otherwise).
+- Only commit/push to git when explicitly asked. Commit messages should
+  read like a person wrote them (short, plain, no AI-style phrasing or
+  trailers).

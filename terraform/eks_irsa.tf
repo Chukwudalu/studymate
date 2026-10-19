@@ -18,7 +18,7 @@ locals {
   eks_oidc_sub_prefix = replace(aws_iam_openid_connect_provider.eks.url, "https://", "")
 }
 
-# --- core-api: same S3 + SQS permissions api_lambda_permissions grants today ---
+# --- core-api: S3 + SQS permissions for the lecture CRUD and enqueue path ---
 
 resource "aws_iam_role" "core_api_irsa" {
   name = "studymate-core-api-irsa"
@@ -60,7 +60,7 @@ resource "aws_iam_role_policy" "core_api_irsa" {
   })
 }
 
-# --- worker: same permissions worker_task_permissions grants today ---
+# --- worker: S3 + SQS permissions for the SQS consumer ---
 
 resource "aws_iam_role" "worker_irsa" {
   name = "studymate-worker-irsa"
@@ -334,7 +334,7 @@ resource "aws_iam_role_policy" "karpenter_controller_irsa" {
         Condition = {
           StringEquals = {
             "aws:RequestTag/kubernetes.io/cluster/studymate" = "owned"
-            "aws:RequestTag/eks:eks-cluster-name"             = "studymate"
+            "aws:RequestTag/eks:eks-cluster-name"            = "studymate"
           }
           StringLike = { "aws:RequestTag/karpenter.sh/nodepool" = "*" }
         }
@@ -354,8 +354,8 @@ resource "aws_iam_role_policy" "karpenter_controller_irsa" {
         Condition = {
           StringEquals = {
             "aws:RequestTag/kubernetes.io/cluster/studymate" = "owned"
-            "aws:RequestTag/eks:eks-cluster-name"             = "studymate"
-            "ec2:CreateAction"                                = ["RunInstances", "CreateFleet", "CreateLaunchTemplate"]
+            "aws:RequestTag/eks:eks-cluster-name"            = "studymate"
+            "ec2:CreateAction"                               = ["RunInstances", "CreateFleet", "CreateLaunchTemplate"]
           }
           StringLike = { "aws:RequestTag/karpenter.sh/nodepool" = "*" }
         }
@@ -366,9 +366,9 @@ resource "aws_iam_role_policy" "karpenter_controller_irsa" {
         Resource = "arn:aws:ec2:${data.aws_region.current.name}:*:instance/*"
         Action   = "ec2:CreateTags"
         Condition = {
-          StringEquals              = { "aws:ResourceTag/kubernetes.io/cluster/studymate" = "owned" }
-          StringLike                = { "aws:ResourceTag/karpenter.sh/nodepool" = "*" }
-          StringEqualsIfExists      = { "aws:RequestTag/eks:eks-cluster-name" = "studymate" }
+          StringEquals         = { "aws:ResourceTag/kubernetes.io/cluster/studymate" = "owned" }
+          StringLike           = { "aws:ResourceTag/karpenter.sh/nodepool" = "*" }
+          StringEqualsIfExists = { "aws:RequestTag/eks:eks-cluster-name" = "studymate" }
           "ForAllValues:StringEquals" = {
             "aws:TagKeys" = ["eks:eks-cluster-name", "karpenter.sh/nodeclaim", "Name"]
           }
@@ -441,8 +441,8 @@ resource "aws_iam_role_policy" "karpenter_controller_irsa" {
         Condition = {
           StringEquals = {
             "aws:RequestTag/kubernetes.io/cluster/studymate" = "owned"
-            "aws:RequestTag/eks:eks-cluster-name"             = "studymate"
-            "aws:RequestTag/topology.kubernetes.io/region"    = data.aws_region.current.name
+            "aws:RequestTag/eks:eks-cluster-name"            = "studymate"
+            "aws:RequestTag/topology.kubernetes.io/region"   = data.aws_region.current.name
           }
           StringLike = { "aws:RequestTag/karpenter.k8s.aws/ec2nodeclass" = "*" }
         }
@@ -457,8 +457,8 @@ resource "aws_iam_role_policy" "karpenter_controller_irsa" {
             "aws:ResourceTag/kubernetes.io/cluster/studymate" = "owned"
             "aws:ResourceTag/topology.kubernetes.io/region"   = data.aws_region.current.name
             "aws:RequestTag/kubernetes.io/cluster/studymate"  = "owned"
-            "aws:RequestTag/eks:eks-cluster-name"              = "studymate"
-            "aws:RequestTag/topology.kubernetes.io/region"     = data.aws_region.current.name
+            "aws:RequestTag/eks:eks-cluster-name"             = "studymate"
+            "aws:RequestTag/topology.kubernetes.io/region"    = data.aws_region.current.name
           }
           StringLike = {
             "aws:ResourceTag/karpenter.k8s.aws/ec2nodeclass" = "*"

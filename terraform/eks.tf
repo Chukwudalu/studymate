@@ -61,13 +61,13 @@ resource "aws_eks_cluster" "main" {
   version  = "1.31"
 
   vpc_config {
-    subnet_ids               = data.aws_subnets.default.ids
-    security_group_ids       = [aws_security_group.eks_cluster.id]
-    endpoint_public_access    = true
+    subnet_ids             = data.aws_subnets.default.ids
+    security_group_ids     = [aws_security_group.eks_cluster.id]
+    endpoint_public_access = true
     # No NAT gateway in this VPC, so there's nowhere for a private-only
     # endpoint to route from - public access is a deliberate trade-off here,
     # not an oversight. See the migration plan's VPC section.
-    endpoint_private_access  = false
+    endpoint_private_access = false
   }
 
   access_config {
