@@ -55,11 +55,9 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name studymate --region us-west-2
 
-      # COOKIE_SECURE=false below matches the ALB's current plain-HTTP listener
-      # (no ACM cert yet - see charts/studymate/values.yaml's acmCertificateArn).
-      # Flip to "true" in Phase 4, once HTTPS is added to the Ingress - the
-      # frontend's cross-site cookie is Secure+SameSite=None and won't be set
-      # by the browser at all over HTTP, so this must change before cutover.
+      # COOKIE_SECURE=true: the ALB serves HTTPS (ACM cert, see
+      # charts/studymate/values.yaml), and the frontend's cross-site cookie is
+      # Secure+SameSite=None, which browsers only accept over HTTPS.
       #
       # No `kubectl create namespace` here deliberately: the CI role's access
       # policy is scoped to edit permissions *within* the studymate namespace
@@ -84,7 +82,7 @@ jobs:
             --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
             --from-literal=S3_BUCKET="$S3_BUCKET" \
             --from-literal=SQS_QUEUE_URL="$SQS_QUEUE_URL" \
-            --from-literal=COOKIE_SECURE=false \
+            --from-literal=COOKIE_SECURE=true \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Helm upgrade

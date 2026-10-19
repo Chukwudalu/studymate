@@ -25,9 +25,9 @@ worker:
 
 # Pre-created in terraform/eks_addons.tf so the Ingress annotation below can
 # reference it deterministically.
-albSecurityGroupId: "sg-076a5a909c8caa05b"
+albSecurityGroupId: "sg-0d98a0e6bb7b864d4"
 
 # Empty for the first pass (Phase 2 verification over plain HTTP). Filled in
 # once an ACM cert is requested, before Phase 4's cutover - the frontend's
 # Secure+SameSite=None auth cookie requires HTTPS to function at all.
-acmCertificateArn: ""
+acmCertificateArn: "arn:aws:acm:us-west-2:458586357596:certificate/bbd9ada2-516f-48c5-b20f-b7c6a43b8648"
